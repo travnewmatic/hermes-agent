@@ -265,6 +265,76 @@ ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
 RUN mkdir -p /opt/data
 VOLUME [ "/opt/data" ]
 
+# Prevent interactive prompts during package installs
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ---------------------------------------------------------------------------
+# 1. kubectl
+# ---------------------------------------------------------------------------
+RUN curl -sS -L -o /usr/local/bin/kubectl \
+       "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl
+
+# ---------------------------------------------------------------------------
+# 2. Google Cloud SDK (gcloud, gsutil) — needs curl + gpg available
+# ---------------------------------------------------------------------------
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg \
+    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-cloud-sdk \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# 3. Helm
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# ---------------------------------------------------------------------------
+# 4. Argo CD CLI
+# ---------------------------------------------------------------------------
+ARG ARGOCD_VERSION=v3.4.2
+RUN curl -sS -L -o /usr/local/bin/argocd \
+       "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64" \
+    && chmod +x /usr/local/bin/argocd
+
+# ---------------------------------------------------------------------------
+# 5. Velero CLI (moved from vmware-tanzu to velero-io)
+# ---------------------------------------------------------------------------
+ARG VELERO_VERSION=v1.17.2
+RUN curl -sS -L -o /tmp/velero.tar.gz \
+       "https://github.com/velero-io/velero/releases/download/${VELERO_VERSION}/velero-${VELERO_VERSION}-linux-amd64.tar.gz" \
+    && tar xzf /tmp/velero.tar.gz -C /usr/local/bin \
+       --strip-components=1 "velero-${VELERO_VERSION}-linux-amd64/velero" \
+    && rm /tmp/velero.tar.gz
+
+# ---------------------------------------------------------------------------
+# 6. B2 CLI (Backblaze B2 - official Linux binary)
+# ---------------------------------------------------------------------------
+RUN curl -sS -L -o /usr/local/bin/b2 \
+       "https://github.com/Backblaze/B2_Command_Line_Tool/releases/latest/download/b2-linux" \
+    && chmod +x /usr/local/bin/b2
+
+# ---------------------------------------------------------------------------
+# 7. GitHub CLI (gh) — Debian/Ubuntu official repo
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+        https://cli.github.com/packages stable main" \
+       | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# 8. Blogwatcher CLI (RSS/Atom feed reader)
+# ---------------------------------------------------------------------------
+RUN curl -sL https://github.com/JulienTant/blogwatcher-cli/releases/latest/download/blogwatcher-cli_linux_amd64.tar.gz \
+       | tar xz -C /usr/local/bin blogwatcher-cli
+
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
 # declared in /etc/s6-overlay/s6-rc.d/, then exec's its remaining
@@ -289,3 +359,20 @@ VOLUME [ "/opt/data" ]
 # like `--version` would be intercepted by /init's POSIX shell.
 ENTRYPOINT [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
 CMD [ ]
+
+# ============================================================================
+# Build:
+#   docker build -t hermes-cloud:latest .
+#
+# Build with custom versions:
+#   docker build --build-arg ARGOCD_VERSION=v3.4.2 \
+#                --build-arg VELERO_VERSION=v1.17.2 \
+#                -t hermes-cloud:latest .
+#
+# Run:
+#   docker run --rm -it \
+#     -v ~/.hermes/config.yaml:/home/hermes/.hermes/config.yaml \
+#     -v ~/.hermes/.env:/home/hermes/.hermes/.env \
+#     -v ~/.blogwatcher-cli:/home/hermes/.blogwatcher-cli \
+#     hermes-cloud:latest
+# ============================================================================
