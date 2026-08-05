@@ -499,7 +499,6 @@ RUN curl -sL https://github.com/JulienTant/blogwatcher-cli/releases/latest/downl
 # main program exits, /init begins stage 3 shutdown and the container
 # exits with the program's exit code. Replaces tini — see Phase 2 of
 # docs/plans/2026-05-07-s6-overlay-dynamic-subagent-gateways.md.
-=======
 # The image ENTRYPOINT is a tiny dispatcher rather than `/init` directly.
 # When the image really owns PID 1 (normal Docker / Podman), the dispatcher
 # execs `/init` and preserves the full s6 supervision tree. When a platform
