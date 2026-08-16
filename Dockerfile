@@ -495,7 +495,7 @@ RUN curl -sL https://github.com/JulienTant/blogwatcher-cli/releases/latest/downl
 
 RUN curl -L "https://github.com/FairwindsOps/nova/releases/download/3.2.0/nova_3.2.0_linux_amd64.tar.gz" > nova.tar.gz && \
     tar -xvf nova.tar.gz && \
-    sudo mv nova /usr/local/bin/ && \
+    mv nova /usr/local/bin/ && \
     rm nova.tar.gz
 
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
