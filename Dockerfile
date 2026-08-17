@@ -498,6 +498,28 @@ RUN curl -L "https://github.com/FairwindsOps/nova/releases/download/3.2.0/nova_3
     mv nova /usr/local/bin/ && \
     rm nova.tar.gz
 
+# ---------------------------------------------------------------------------
+# 10. krew (kubectl plugin manager) — official bash install instructions:
+# https://krew.sigs.k8s.io/docs/user-guide/setup/install/
+#
+# KREW_ROOT is pinned to /opt/krew instead of the default $HOME/.krew:
+# the build runs as root (whose $HOME is /root), but the container runs
+# the hermes process as UID 10000 with $HOME=/opt/data, so a $HOME-relative
+# install would be invisible at runtime. Pinning KREW_ROOT keeps `kubectl
+# krew` (and any plugins installed via it) working for every user.
+# ---------------------------------------------------------------------------
+ENV KREW_ROOT=/opt/krew
+RUN ( \
+        set -x; cd "$(mktemp -d)" && \
+        OS="$(uname | tr '[:upper:]' '[:lower:]')" && \
+        ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" && \
+        KREW="krew-${OS}_${ARCH}" && \
+        curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" && \
+        tar zxvf "${KREW}.tar.gz" && \
+        ./"${KREW}" install krew \
+    )
+ENV PATH="${KREW_ROOT}/bin:${PATH}"
+
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
 # declared in /etc/s6-overlay/s6-rc.d/, then exec's its remaining
