@@ -527,6 +527,26 @@ RUN ( \
     )
 ENV PATH="${KREW_ROOT}/bin:${PATH}"
 
+# ---------------------------------------------------------------------------
+# 11. Prometheus promtool (bundled in the prometheus release tarball)
+# ---------------------------------------------------------------------------
+ARG PROMETHEUS_VERSION=3.14.0
+RUN curl -sS -L -o /tmp/prometheus.tar.gz \
+       "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+    && tar xzf /tmp/prometheus.tar.gz -C /usr/local/bin \
+       --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool" \
+    && rm /tmp/prometheus.tar.gz
+
+# ---------------------------------------------------------------------------
+# 12. Alertmanager amtool (bundled in the alertmanager release tarball)
+# ---------------------------------------------------------------------------
+ARG ALERTMANAGER_VERSION=0.34.0
+RUN curl -sS -L -o /tmp/alertmanager.tar.gz \
+       "https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/alertmanager-${ALERTMANAGER_VERSION}.linux-amd64.tar.gz" \
+    && tar xzf /tmp/alertmanager.tar.gz -C /usr/local/bin \
+       --strip-components=1 "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/amtool" \
+    && rm /tmp/alertmanager.tar.gz
+
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
 # declared in /etc/s6-overlay/s6-rc.d/, then exec's its remaining
