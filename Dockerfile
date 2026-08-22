@@ -547,6 +547,50 @@ RUN curl -sS -L -o /tmp/alertmanager.tar.gz \
        --strip-components=1 "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/amtool" \
     && rm /tmp/alertmanager.tar.gz
 
+# ---------------------------------------------------------------------------
+# 13. Personal apt tools (jq, unzip, dig, nmap, mtr)
+# ---------------------------------------------------------------------------
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq unzip dnsutils nmap mtr-tiny \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# 14. rclone (official apt repo)
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://pkg.rclone.org/keyring.gpg \
+       | gpg --dearmor -o /usr/share/keyrings/rclone.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/rclone.gpg] https://pkg.rclone.org/apt stable main" \
+        > /etc/apt/sources.list.d/rclone.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends rclone \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# 15. yq (YAML processor — mikefarah/yq Go binary)
+# ---------------------------------------------------------------------------
+ARG YQ_VERSION=v4.53.6
+RUN curl -sS -L -o /usr/local/bin/yq \
+       "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+    && chmod +x /usr/local/bin/yq
+
+# ---------------------------------------------------------------------------
+# 16. stern (multi-pod log tailing)
+# ---------------------------------------------------------------------------
+ARG STERN_VERSION=1.34.0
+RUN curl -sS -L -o /tmp/stern.tar.gz \
+       "https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_amd64.tar.gz" \
+    && tar xzf /tmp/stern.tar.gz -C /usr/local/bin stern \
+    && rm /tmp/stern.tar.gz
+
+# ---------------------------------------------------------------------------
+# 17. kubeconform (K8s manifest schema validator)
+# ---------------------------------------------------------------------------
+ARG KUBECONFORM_VERSION=v0.8.0
+RUN curl -sS -L -o /tmp/kubeconform.tar.gz \
+       "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+    && tar xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform \
+    && rm /tmp/kubeconform.tar.gz
+
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
 # declared in /etc/s6-overlay/s6-rc.d/, then exec's its remaining
