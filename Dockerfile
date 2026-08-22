@@ -548,25 +548,15 @@ RUN curl -sS -L -o /tmp/alertmanager.tar.gz \
     && rm /tmp/alertmanager.tar.gz
 
 # ---------------------------------------------------------------------------
-# 13. Personal apt tools (jq, unzip, dig, nmap, mtr)
+# 13. Personal apt tools (jq, rclone, unzip, dig, nmap, mtr)
+#     rclone comes from Debian trixie's main repo (avoids pkg.rclone.org).
 # ---------------------------------------------------------------------------
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends jq unzip dnsutils nmap mtr-tiny \
+    && apt-get install -y --no-install-recommends jq rclone unzip dnsutils nmap mtr-tiny \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 14. rclone (official apt repo)
-# ---------------------------------------------------------------------------
-RUN curl -fsSL https://pkg.rclone.org/keyring.gpg \
-       | gpg --dearmor -o /usr/share/keyrings/rclone.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/rclone.gpg] https://pkg.rclone.org/apt stable main" \
-        > /etc/apt/sources.list.d/rclone.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends rclone \
-    && rm -rf /var/lib/apt/lists/*
-
-# ---------------------------------------------------------------------------
-# 15. yq (YAML processor — mikefarah/yq Go binary)
+# 14. yq (YAML processor — mikefarah/yq Go binary)
 # ---------------------------------------------------------------------------
 ARG YQ_VERSION=v4.53.6
 RUN curl -sS -L -o /usr/local/bin/yq \
@@ -574,7 +564,7 @@ RUN curl -sS -L -o /usr/local/bin/yq \
     && chmod +x /usr/local/bin/yq
 
 # ---------------------------------------------------------------------------
-# 16. stern (multi-pod log tailing)
+# 15. stern (multi-pod log tailing)
 # ---------------------------------------------------------------------------
 ARG STERN_VERSION=1.34.0
 RUN curl -sS -L -o /tmp/stern.tar.gz \
@@ -583,7 +573,7 @@ RUN curl -sS -L -o /tmp/stern.tar.gz \
     && rm /tmp/stern.tar.gz
 
 # ---------------------------------------------------------------------------
-# 17. kubeconform (K8s manifest schema validator)
+# 16. kubeconform (K8s manifest schema validator)
 # ---------------------------------------------------------------------------
 ARG KUBECONFORM_VERSION=v0.8.0
 RUN curl -sS -L -o /tmp/kubeconform.tar.gz \
