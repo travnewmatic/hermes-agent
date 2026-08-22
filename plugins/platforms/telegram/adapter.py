@@ -2363,15 +2363,10 @@ class TelegramAdapter(BasePlatformAdapter):
             "message_id": int(message_id),
             "rich_message": self._rich_message_payload(content),
         }
-        thread_id = self._metadata_thread_id(metadata)
-        thread_kwargs = self._thread_kwargs_for_send(
-            chat_id,
-            thread_id,
-            metadata,
-            reply_to_message_id=None,
-            reply_to_mode=self._reply_to_mode,
-        )
-        payload.update({k: v for k, v in thread_kwargs.items() if v is not None})
+        # Edits target an existing message by chat_id + message_id. Topic
+        # routing belongs only on send endpoints; forwarding message_thread_id
+        # or direct_messages_topic_id makes Telegram reject this rich edit and
+        # sends the caller through the legacy table-to-bullets fallback.
         if getattr(self, "_disable_link_previews", False):
             payload["link_preview_options"] = {"is_disabled": True}
         try:
@@ -5446,9 +5441,29 @@ class TelegramAdapter(BasePlatformAdapter):
                     except Exception as send_err:
                         retry_after = getattr(send_err, "retry_after", None)
                         if retry_after is not None or "retry after" in str(send_err).lower():
+                            wait = float(retry_after) if retry_after is not None else 1.0
+                            safe_send_error = _redact_telegram_error_text(send_err)
+                            # Mirror the edit path: a RetryAfter past a few
+                            # seconds is not something to hold this coroutine
+                            # open for. Sleeping the server value verbatim
+                            # pinned send() for 97 minutes in production and
+                            # froze inbound on every platform when it ran on
+                            # the gateway boot path (#91969).
+                            if wait > 5.0:
+                                logger.warning(
+                                    "[%s] Telegram flood control on send "
+                                    "(retry_after=%.1fs > 5s); failing closed "
+                                    "instead of sleeping: %s",
+                                    self.name,
+                                    wait,
+                                    safe_send_error,
+                                )
+                                return SendResult(
+                                    success=False,
+                                    error=f"flood_control:{wait}",
+                                    retry_after=float(wait),
+                                )
                             if _send_attempt < 2:
-                                wait = float(retry_after) if retry_after is not None else 1.0
-                                safe_send_error = _redact_telegram_error_text(send_err)
                                 logger.warning(
                                     "[%s] Telegram flood control on send (attempt %d/3), retrying in %.1fs: %s",
                                     self.name,
