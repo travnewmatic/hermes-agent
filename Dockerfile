@@ -581,6 +581,16 @@ RUN curl -sS -L -o /tmp/kubeconform.tar.gz \
     && tar xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform \
     && rm /tmp/kubeconform.tar.gz
 
+# ---------------------------------------------------------------------------
+# 17. kopia (Velero backup engine CLI — not in Debian trixie, from GitHub)
+# ---------------------------------------------------------------------------
+ARG KOPIA_VERSION=0.23.1
+RUN curl -sS -L -o /tmp/kopia.tar.gz \
+       "https://github.com/kopia/kopia/releases/download/v${KOPIA_VERSION}/kopia-${KOPIA_VERSION}-linux-x64.tar.gz" \
+    && tar xzf /tmp/kopia.tar.gz -C /usr/local/bin \
+       --strip-components=1 "kopia-${KOPIA_VERSION}-linux-x64/kopia" \
+    && rm /tmp/kopia.tar.gz
+
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
 # declared in /etc/s6-overlay/s6-rc.d/, then exec's its remaining
