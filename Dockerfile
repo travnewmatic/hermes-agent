@@ -427,8 +427,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 # ---------------------------------------------------------------------------
 # 1. kubectl
 # ---------------------------------------------------------------------------
+ARG KUBECTL_VERSION=v1.36.4
 RUN curl -sS -L -o /usr/local/bin/kubectl \
-       "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
 # ---------------------------------------------------------------------------
@@ -446,7 +447,10 @@ RUN apt-get update \
 # ---------------------------------------------------------------------------
 # 3. Helm
 # ---------------------------------------------------------------------------
-RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+ARG HELM_VERSION=v4.2.4
+RUN curl -fsSL -o /tmp/helm.tar.gz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+    && tar xzf /tmp/helm.tar.gz -C /usr/local/bin --strip-components=1 "linux-amd64/helm" \
+    && rm /tmp/helm.tar.gz
 
 # ---------------------------------------------------------------------------
 # 4. Argo CD CLI
@@ -469,8 +473,9 @@ RUN curl -sS -L -o /tmp/velero.tar.gz \
 # ---------------------------------------------------------------------------
 # 6. B2 CLI (Backblaze B2 - official Linux binary)
 # ---------------------------------------------------------------------------
+ARG B2_VERSION=v4.7.1
 RUN curl -sS -L -o /usr/local/bin/b2 \
-       "https://github.com/Backblaze/B2_Command_Line_Tool/releases/latest/download/b2-linux" \
+       "https://github.com/Backblaze/B2_Command_Line_Tool/releases/download/${B2_VERSION}/b2-linux" \
     && chmod +x /usr/local/bin/b2
 
 # ---------------------------------------------------------------------------
@@ -488,7 +493,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 # ---------------------------------------------------------------------------
 # 8. Blogwatcher CLI (RSS/Atom feed reader)
 # ---------------------------------------------------------------------------
-RUN curl -sL https://github.com/JulienTant/blogwatcher-cli/releases/latest/download/blogwatcher-cli_linux_amd64.tar.gz \
+ARG BLOGWATCHER_VERSION=v0.2.1
+RUN curl -sL https://github.com/JulienTant/blogwatcher-cli/releases/download/${BLOGWATCHER_VERSION}/blogwatcher-cli_linux_amd64.tar.gz \
        | tar xz -C /usr/local/bin blogwatcher-cli
 
 # 9. Fairwinds Nova
@@ -508,13 +514,14 @@ RUN curl -L "https://github.com/FairwindsOps/nova/releases/download/3.2.0/nova_3
 # install would be invisible at runtime. Pinning KREW_ROOT keeps `kubectl
 # krew` (and any plugins installed via it) working for every user.
 # ---------------------------------------------------------------------------
+ARG KREW_VERSION=v0.5.0
 ENV KREW_ROOT=/opt/krew
 RUN ( \
         set -x; cd "$(mktemp -d)" && \
         OS="$(uname | tr '[:upper:]' '[:lower:]')" && \
         ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" && \
         KREW="krew-${OS}_${ARCH}" && \
-        curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" && \
+        curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/download/${KREW_VERSION}/${KREW}.tar.gz" && \
         tar zxvf "${KREW}.tar.gz" && \
         ./"${KREW}" install krew \
     )
