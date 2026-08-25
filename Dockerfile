@@ -591,6 +591,11 @@ RUN curl -sS -L -o /tmp/kopia.tar.gz \
        --strip-components=1 "kopia-${KOPIA_VERSION}-linux-x64/kopia" \
     && rm /tmp/kopia.tar.gz
 
+# 18. joplin
+
+RUN NPM_CONFIG_PREFIX="/opt/data/home/.joplin-bin" npm install --loglevel=error -g joplin
+RUN ln -s ${NPM_CONFIG_PREFIX}/bin/joplin /usr/local/bin/joplin
+
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
 # declared in /etc/s6-overlay/s6-rc.d/, then exec's its remaining
