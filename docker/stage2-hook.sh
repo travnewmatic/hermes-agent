@@ -526,6 +526,30 @@ if [ -f "$HERMES_HOME/.env" ]; then
     fi
 fi
 
+# Tighten perms on CLI config files that hold credentials. These live on the
+# hermes-data volume and are created with a permissive mode (0660) by the
+# CLIs (argocd, gh) or by ssh-key setup; each tool refuses to run if its
+# config is group/world readable. Applied unconditionally — not only on
+# first-seed — so a permissive file gets tightened on every container start,
+# matching the .env handling above. The `|| true` guards let a read-only
+# volume degrade to a no-op rather than abort the hook under `set -e`.
+for _cred_file in \
+    "$HERMES_HOME/home/.config/argocd/config" \
+    "$HERMES_HOME/home/.config/gh/hosts.yml" \
+    "$HERMES_HOME/home/.config/gh/config.yml" \
+    "$HERMES_HOME/home/.ssh/id_ed25519" \
+    "$HERMES_HOME/.ssh/id_ed25519"
+do
+    if [ -f "$_cred_file" ]; then
+        if refuse_symlinked_path "chown/chmod" "$_cred_file"; then
+            :
+        else
+            chown hermes:hermes "$_cred_file" 2>/dev/null || true
+            chmod 600 "$_cred_file" 2>/dev/null || true
+        fi
+    fi
+done
+
 # --- Grant the gateway access to the Fly Machines API socket (scale-to-zero) ---
 # On Fly, flyd mounts the local Machines API ("flaps") unix socket at /.fly/api
 # owned root:root 0755. The gateway's scale-to-zero self-suspend
