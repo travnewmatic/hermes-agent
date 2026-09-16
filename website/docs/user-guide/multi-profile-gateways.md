@@ -26,10 +26,13 @@ be online at the same time. Common reasons:
 - A research agent + a writing agent + a cron-driven bot — each with isolated
   memory and skills
 
-Every profile already gets its own per-platform LaunchAgent
-(`ai.hermes.gateway-<name>.plist`) or systemd user service
-(`hermes-gateway-<name>.service`). This guide adds the patterns for managing
-them collectively.
+Every profile already gets its own per-platform supervisor entry: a LaunchAgent
+(`ai.hermes.gateway-<name>.plist`), a systemd user service
+(`hermes-gateway-<name>.service`), a systemd **system** service when installed with
+`sudo hermes gateway install --system` (runs as the invoking user via `User=`), a
+Windows Scheduled Task, or an s6/Docker service — and the Desktop app spawns its own
+per-profile `hermes serve` backend. This guide adds the patterns for managing them
+collectively.
 
 ## Quick start
 
@@ -143,6 +146,13 @@ the plain restart. `/api/status?profile=coder` carries the same list as
 default home's `gateway_state.json`), so it stays correct when the multiplexer was
 enabled only through `GATEWAY_MULTIPLEX_PROFILES` in the default profile's
 environment, or when profiles were added after the gateway started.
+
+The setup flows follow the same rule: `hermes -p coder setup gateway`, `hermes -p coder setup`,
+`hermes -p coder gateway setup` and `hermes -p coder import` configure the profile's bots but
+skip the "install the gateway background service" step for a served profile, printing
+*"Profile 'coder' is already served by the default multiplexer"* instead of registering a
+stray unit or plist that could only sit dead. Add the bot token and the running multiplexer
+picks it up.
 
 The multiplexer is the single inbound process; a second profile gateway would
 double-bind that profile's platforms. Pass `--force` (accepted by `run`, `start`,
