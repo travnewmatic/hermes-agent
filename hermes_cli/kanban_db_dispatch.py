@@ -25,6 +25,8 @@ from typing import Mapping
 from typing import Optional
 from typing import TYPE_CHECKING
 
+from hermes_cli.quiet_single_query import KANBAN_WORKER_EXIT_TRAILER
+
 if TYPE_CHECKING:
     from hermes_cli.kanban_db import Task
 
@@ -179,10 +181,23 @@ def describe_suppression(results: Iterable[Optional["DispatchResult"]]) -> str:
 # ``dispatch_once`` and read by ``detect_crashed_workers`` to classify a dead-pid
 # task. Entry: ``pid -> (raw_wait_status, reaped_at_epoch)``; raw status kept so
 # both WIFEXITED/WEXITSTATUS and WIFSIGNALED can be consulted. Trimmed by age
-# plus a total size cap.
+# plus a total size cap. Process-local by nature (``waitpid`` only reaps our own
+# children): a per-tick ``hermes kanban dispatch`` process finds it empty, so
+# ``_classify_dead_worker_exit`` falls back to the exit trailer the worker
+# leaves in its own log (``KANBAN_WORKER_EXIT_TRAILER``).
 _RECENT_WORKER_EXIT_TTL_SECONDS = 600
 _RECENT_WORKER_EXITS_MAX = 4096
 _recent_worker_exits: "dict[int, tuple[int, float]]" = {}
+
+# Windows has no ``waitpid(-1)``: a child's exit code is only recoverable
+# through a live handle, so ``_default_spawn`` parks each worker's ``Popen``
+# here (Windows only) and ``reap_worker_zombies`` polls it. Entry: ``pid -> Popen``.
+_live_worker_procs: "dict[int, subprocess.Popen]" = {}
+
+
+def _wait_status_from_returncode(returncode: int) -> int:
+    """Encode a ``Popen.returncode`` in the wait-status layout the registry stores."""
+    return (int(returncode) & 0xFF) << 8
 
 
 def _record_worker_exit(pid: int, raw_status: int) -> None:
@@ -212,37 +227,76 @@ def _classify_worker_exit(pid: int) -> "tuple[str, Optional[int]]":
     if entry is None:
         return ("unknown", None)
     raw, _ = entry
-    try:
-        if os.WIFEXITED(raw):
-            code = os.WEXITSTATUS(raw)
-            if code == 0:
-                return ("clean_exit", 0)
-            if code == _kb.KANBAN_RATE_LIMIT_EXIT_CODE:
-                return ("rate_limited", code)
-            return ("nonzero_exit", code)
-        if os.WIFSIGNALED(raw):
-            return ("signaled", os.WTERMSIG(raw))
-    except Exception:
-        pass
+    # Bit-level POSIX wait-status decode instead of os.WIFEXITED/WEXITSTATUS/
+    # WIFSIGNALED/WTERMSIG: those helpers do not exist on Windows, where the
+    # registry is fed by reap_worker_zombies' Popen poll. Low 7 bits = signal
+    # (0 = normal exit, 0x7F = stopped), bits 8-15 = exit code.
+    raw = int(raw)
+    signal_number = raw & 0x7F
+    if signal_number == 0:
+        return _exit_code_kind((raw >> 8) & 0xFF)
+    if signal_number != 0x7F:
+        return ("signaled", signal_number)
     return ("unknown", None)
 
 
+def _exit_code_kind(code: int) -> "tuple[str, int]":
+    """``(kind, code)`` for a worker's exit code, however it was observed."""
+    if code == 0:
+        return ("clean_exit", 0)
+    if code == _kb.KANBAN_RATE_LIMIT_EXIT_CODE:
+        return ("rate_limited", code)
+    return ("nonzero_exit", code)
+
+
+_EXIT_TRAILER_RE = re.compile(
+    r"^" + re.escape(KANBAN_WORKER_EXIT_TRAILER) + r"(\d+)\s*$", re.MULTILINE,
+)
+
+
+def _worker_log_exit_code(task_id: str, board: Optional[str] = None) -> Optional[int]:
+    """Exit code from the trailer the worker CLI wrote to its own log; None when absent.
+
+    The durable twin of ``_recent_worker_exits``: written by the worker itself
+    (``hermes_cli.quiet_single_query.exit_single_query``), so it is there whether
+    or not the process running this sweep ever reaped the worker. Last trailer
+    wins — the log is append-mode across re-runs.
+    """
+    try:
+        raw = _kb.read_worker_log(task_id, tail_bytes=4000, board=board)
+    except Exception:
+        return None
+    matches = _EXIT_TRAILER_RE.findall(raw or "")
+    return int(matches[-1]) if matches else None
+
+
 def reap_worker_zombies() -> "list[int]":
-    """Reap all zombie children without blocking; returns reaped PIDs. No-op on Windows."""
+    """Reap exited workers without blocking; returns reaped PIDs. POSIX reaps
+    every child via ``waitpid(-1)``; Windows polls the ``Popen`` handles
+    parked by ``_default_spawn`` (the only way to learn a child's exit code
+    there), so the rate-limit sentinel exit is classified on both hosts."""
     reaped: "list[int]" = []
-    if os.name != "nt":
-        try:
-            while True:
-                try:
-                    pid, status = os.waitpid(-1, os.WNOHANG)
-                except ChildProcessError:
-                    break
-                if pid == 0:
-                    break
-                _record_worker_exit(pid, status)
-                reaped.append(pid)
-        except Exception:
-            pass
+    if _kb._IS_WINDOWS:
+        for pid, proc in list(_live_worker_procs.items()):
+            returncode = proc.poll()
+            if returncode is None:
+                continue
+            _record_worker_exit(pid, _wait_status_from_returncode(returncode))
+            _live_worker_procs.pop(pid, None)
+            reaped.append(pid)
+        return reaped
+    try:
+        while True:
+            try:
+                pid, status = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if pid == 0:
+                break
+            _record_worker_exit(pid, status)
+            reaped.append(pid)
+    except Exception:
+        pass
     return reaped
 
 
@@ -939,6 +993,7 @@ def _worker_final_output(task_id: str, board: Optional[str] = None) -> str:
         return ""
     if not raw:
         return ""
+    raw = _EXIT_TRAILER_RE.sub("", raw)
     cut = raw.rfind(_EXIT_SUMMARY_MARKER)
     if cut != -1:
         raw = raw[:cut]
@@ -978,7 +1033,7 @@ def _classify_dead_worker(
     in the event payload, appended to the error text) so the board and the retry
     worker see WHY instead of a bare label; a rate-limited requeue does not need it.
     """
-    dead = _classify_dead_worker_exit(pid, claimer)
+    dead = _classify_dead_worker_exit(pid, claimer, task_id=task_id, board=board)
     if task_id and not dead.rate_limited:
         worker_output = _worker_final_output(task_id, board=board)
         if worker_output:
@@ -987,9 +1042,26 @@ def _classify_dead_worker(
     return dead
 
 
-def _classify_dead_worker_exit(pid: int, claimer: Optional[str]) -> _DeadWorker:
-    """Exit status -> reclaim bookkeeping, before the worker's own words are folded in."""
+def _classify_dead_worker_exit(
+    pid: int,
+    claimer: Optional[str],
+    *,
+    task_id: Optional[str] = None,
+    board: Optional[str] = None,
+) -> _DeadWorker:
+    """Exit status -> reclaim bookkeeping, before the worker's own words are folded in.
+
+    The reap registry only knows children of THIS process; a per-tick dispatcher
+    reads the exit trailer the worker left in its log instead, so the same death
+    gets the same booking (protocol violation / rate-limit requeue / crash) as
+    under the gateway-embedded dispatcher. A worker that never reached its exit
+    epilogue (killed, OOM) leaves no trailer and stays a plain crash.
+    """
     kind, code = _classify_worker_exit(pid)
+    if kind == "unknown" and task_id:
+        logged = _worker_log_exit_code(task_id, board=board)
+        if logged is not None:
+            kind, code = _exit_code_kind(logged)
     if kind == "clean_exit":
         # rc=0 while still ``running``: usually the work succeeded and only the
         # paperwork was skipped; the corrective sentence reaches the retry
@@ -1157,6 +1229,10 @@ def _account_crashes(conn: sqlite3.Connection, crash_details: list) -> list[str]
             )
         else:
             is_systemic = fp_counts.get(_error_fingerprint(error_text), 0) >= 3
+            extra = {"pid": pid, "claimer": claimer}
+            if is_systemic:
+                # Trips at 1, below any ``failure_limit``: hold it for an operator.
+                extra["sticky"] = True
             tripped = _record_task_failure(
                 conn, tid,
                 error=error_text,
@@ -1164,7 +1240,7 @@ def _account_crashes(conn: sqlite3.Connection, crash_details: list) -> list[str]
                 failure_limit=1 if is_systemic else None,
                 release_claim=False,
                 end_run=False,
-                event_payload_extra={"pid": pid, "claimer": claimer},
+                event_payload_extra=extra,
             )
         if tripped:
             auto_blocked.append(tid)
@@ -1333,6 +1409,10 @@ def _record_task_failure(
                     "retry_status": retry_status,
                 },
             )
+        if force_trip:
+            # The caller applied its own bounded policy, so the counter cannot
+            # judge this block: ``recompute_ready`` holds it for an operator.
+            payload["sticky"] = True
         if event_payload_extra:
             payload.update(event_payload_extra)
         _kb._append_event(conn, task_id, "gave_up", payload, run_id=run_id)
@@ -2745,6 +2825,8 @@ def _default_spawn(task: Task, workspace: str, *, board: Optional[str] = None) -
         )
     # Intentionally NOT closing log_f: the child keeps writing after return;
     # the OS-level FD stays open in the child until it exits.
+    if _kb._IS_WINDOWS:
+        _live_worker_procs[proc.pid] = proc
     return proc.pid
 
 

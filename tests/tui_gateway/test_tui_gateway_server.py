@@ -12158,6 +12158,7 @@ def test_rollback_restore_resolves_number_and_file_path():
 
     class _Mgr:
         enabled = True
+        unsupported_backend_reason = staticmethod(lambda task_id="default": None)
 
         def list_checkpoints(self, cwd):
             return [{"hash": "aaa111"}, {"hash": "bbb222"}]
@@ -12190,6 +12191,7 @@ def test_rollback_restore_truncates_from_real_user_turn_not_marker(monkeypatch):
 
     class _Mgr:
         enabled = True
+        unsupported_backend_reason = staticmethod(lambda task_id="default": None)
 
         def list_checkpoints(self, cwd):
             return [{"hash": "abc123"}]
@@ -12246,6 +12248,7 @@ def test_rollback_restore_skips_legacy_compaction_handoff(monkeypatch):
 
     class _Mgr:
         enabled = True
+        unsupported_backend_reason = staticmethod(lambda task_id="default": None)
 
         def list_checkpoints(self, cwd):
             return [{"hash": "abc123"}]
@@ -12306,6 +12309,7 @@ def test_rollback_restore_preserves_composite_carrier_scaffold(monkeypatch, tmp_
 
     class _Mgr:
         enabled = True
+        unsupported_backend_reason = staticmethod(lambda task_id="default": None)
 
         def list_checkpoints(self, cwd):
             return [{"hash": "abc123"}]
@@ -13354,6 +13358,65 @@ def test_prompt_submit_can_truncate_before_user_ordinal(monkeypatch):
         ]
         assert server._sessions["sid"]["history_version"] == 2
         assert stub_db.replaced == [("session-key", original_history[:2])]
+    finally:
+        server._sessions.pop("sid", None)
+
+
+def test_prompt_submit_truncation_signals_busy_instead_of_queueing(monkeypatch):
+    """#113942: editing a message while the turn it belongs to is still running
+
+    must not be silently absorbed as a steered correction or a plain follow-up
+    queued to run AFTER the live turn — both would drop the truncation and
+    leave the original (un-edited) turn's reply intact, which reads to the
+    user as "my edit was rejected". It must surface as the same "session busy"
+    (4009) the desktop client's edit path already retries through (interrupt,
+    then poll) until the turn actually clears.
+    """
+    agent = types.SimpleNamespace()  # no redirect/steer support -> would fall to queue+interrupt
+    server._sessions["sid"] = _session(agent=agent, running=True)
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "prompt.submit",
+                "params": {
+                    "session_id": "sid",
+                    "text": "edited while thinking",
+                    "truncate_before_user_ordinal": 0,
+                    "confirm_truncate": True,
+                    "confirm_empty_truncate": True,
+                },
+            }
+        )
+
+        assert resp.get("error", {}).get("code") == 4009
+        assert "session busy" in resp["error"]["message"]
+        # The edit must not have been silently accepted as a queued follow-up.
+        assert server._sessions["sid"].get("queued_prompt") is None
+        assert server._sessions["sid"]["running"] is True
+    finally:
+        server._sessions.pop("sid", None)
+
+
+def test_prompt_submit_truncation_refuses_redirect_of_live_turn():
+    """The redirect-capable agent (the Desktop's normal case) is the branch that silently
+    absorbed the edit: `busy_input_mode=interrupt` turned the rewind into a mid-turn
+    redirect and left the un-edited transcript in place."""
+    redirected = []
+    agent = types.SimpleNamespace(
+        _supports_active_turn_redirect=True, redirect=lambda text: redirected.append(text) or True)
+    server._sessions["sid"] = _session(agent=agent, running=True, history=[{"role": "user", "content": "original"}])
+
+    try:
+        resp = server.handle_request({
+            "id": "1", "method": "prompt.submit",
+            "params": {"session_id": "sid", "text": "edited while thinking", "truncate_before_user_ordinal": 0,
+                       "confirm_truncate": True, "confirm_empty_truncate": True}})
+
+        assert resp.get("error", {}).get("code") == 4009
+        assert redirected == []
+        assert server._sessions["sid"]["history"] == [{"role": "user", "content": "original"}]
     finally:
         server._sessions.pop("sid", None)
 
@@ -16903,6 +16966,40 @@ def test_model_save_key_uses_credential_lifecycle_and_picker_context(monkeypatch
         picker_hints=True,
         max_models=50,
     )
+
+
+def test_model_save_key_reconciles_the_launch_profiles_stale_setup_record(monkeypatch):
+    """The gated picker's own chat waits on ``setup.status``, which answers from the boot record:
+    a key saved for the launch profile must flip a ``False`` record (+ ``setup.ready``) at once;
+    a key saved for another profile (``profile`` param) must leave the launch record alone."""
+    from hermes_cli import free_tier_bootstrap as fb
+
+    monkeypatch.setattr("hermes_cli.auth.PROVIDER_REGISTRY", {"test-provider": types.SimpleNamespace(
+        name="Test Provider", auth_type="api_key", api_key_env_vars=("TEST_PROVIDER_API_KEY",))})
+    monkeypatch.setattr("hermes_cli.config.is_managed", lambda: False)
+    monkeypatch.setattr("hermes_cli.credential_lifecycle.save_provider_env_credential", Mock())
+    monkeypatch.setattr("hermes_cli.inventory.build_models_payload", Mock(return_value={"providers": []}))
+    monkeypatch.setenv("TEST_PROVIDER_API_KEY", "previous-value")  # save_key exports the new key
+    monkeypatch.setattr(fb, "_inventory_other_providers", lambda: True)
+    monkeypatch.setattr(fb, "_resolve_inference", lambda: "test-provider")
+    broadcasts = []
+    monkeypatch.setattr(fb, "_broadcast", broadcasts.append)
+    fb.reset_for_tests()
+    stale = fb.SetupRecord(provider_configured=False, inference_provider="", free_tier=False,
+                           has_identity=False, other_providers=False)
+    with fb._lock:
+        fb._record, fb._started = stale, True
+        fb._done.set()
+    try:
+        params = {"slug": "test-provider", "api_key": "k-" + "1"}
+        assert "result" in server._methods["model.save_key"](104, {**params, "profile": "other"})
+        assert fb.current_record() is stale and broadcasts == [], "another profile's key is not ours"
+        assert "result" in server._methods["model.save_key"](105, params)
+        record = fb.current_record()
+        assert record.provider_configured is True and record.inference_provider == "test-provider"
+        assert broadcasts == [record]
+    finally:
+        fb.reset_for_tests()
 
 
 # ---------------------------------------------------------------------------

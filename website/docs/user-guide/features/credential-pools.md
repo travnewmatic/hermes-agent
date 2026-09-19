@@ -16,7 +16,7 @@ Provider-side prompt caches (Anthropic, OpenAI, OpenRouter) are scoped to the ac
 :::
 
 :::tip
-Credential pools are mainly for API-key providers (OpenRouter, Anthropic). A single [Nous Portal](/integrations/nous-portal) OAuth covers 300+ models, so most users don't need a pool when on Portal.
+Credential pools are mainly for API-key providers (OpenRouter, Anthropic). A single [Nous Portal](../../integrations/nous-portal.md) OAuth covers 300+ models, so most users don't need a pool when on Portal.
 :::
 
 ## How It Works
@@ -180,6 +180,13 @@ The pool handles different errors differently:
 Provider-supplied `reset_at` timestamps override these default cooldowns.
 
 The `has_retried_429` flag resets on every successful API call, so a single transient 429 doesn't trigger rotation.
+
+**Quota benches are temporary for the live session too.** When a 429/402 rotates a session off a
+credential, that session checks at the start of each turn whether the benched credential is back in
+rotation and moves back to it as soon as its cooldown lifts — the same choice a new session would make.
+A long-running chat (the gateway keeps agents cached) therefore returns to a subscription seat once
+its window reopens instead of billing the metered fallback for the rest of its life. A `401` bench
+does not trigger this; an explicit `/model` switch cancels a pending switch-back.
 
 **Anthropic 429s are per model.** Anthropic enforces its rate limits per model, so a generic 429 for
 one Claude model cools that credential down for *that model only* — the same key keeps serving every
