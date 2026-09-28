@@ -2373,7 +2373,6 @@ export interface Translations {
     mcpServers: string
     archivedChats: string
     sections: Record<'maintenance' | 'sessions' | 'system' | 'usage', string>
-    sectionDescriptions: Record<'maintenance' | 'sessions' | 'system' | 'usage', string>
     nav: Record<'newChat' | 'settings' | 'capabilities' | 'messaging' | 'artifacts', { title: string; detail: string }>
     sectionEntries: Record<'sessions' | 'system' | 'usage', { title: string; detail: string }>
     providerNavigate: string
@@ -2474,6 +2473,7 @@ export interface Translations {
 
   messaging: {
     search: string
+    statusFilter: Record<'all' | 'bad' | 'good' | 'muted' | 'warn', string>
     loading: string
     loadFailed: string
     states: Record<string, string>
@@ -3837,6 +3837,10 @@ export interface Translations {
     addProvider: string
     addCustomModel: string
     removeCustomModel: string
+    resetToDefaults: string
+    resetConfirm: string
+    resetDescription: string
+    resetAction: string
   }
 
   shell: {
@@ -4636,6 +4640,11 @@ export interface Translations {
   ui: {
     search: {
       clear: string
+    }
+    logs: {
+      bottom: string
+      search: string
+      top: string
     }
     pagination: {
       label: string

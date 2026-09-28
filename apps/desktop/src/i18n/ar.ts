@@ -1451,11 +1451,6 @@ export const ar = defineLocale({
       system: 'النظام',
       usage: 'الاستخدام'
     },
-    sectionDescriptions: {
-      sessions: 'البحث في الجلسات وإدارتها',
-      system: 'الحالة والسجلات وإجراءات النظام',
-      usage: 'نشاط الرموز والتكلفة والمهارات عبر الزمن'
-    },
     nav: {
       newChat: {
         title: 'جلسة جديدة',
@@ -1520,6 +1515,7 @@ export const ar = defineLocale({
     actionStartedWaiting: 'بدأ الإجراء، جار الانتظار...',
     loadingStatus: 'جار تحميل الحالة',
     recentLogs: 'السجلات الأخيرة',
+    logSearchPlaceholder: 'البحث في سطور السجل...',
     noLogs: 'لا توجد سجلات',
     days: count => `${count} يوم`,
     statSessions: 'الجلسات',
@@ -1542,6 +1538,13 @@ export const ar = defineLocale({
   },
   messaging: {
     search: 'بحث',
+    statusFilter: {
+      all: 'الكل',
+      bad: 'أخطاء',
+      good: 'متصل',
+      muted: 'غير نشط',
+      warn: 'يحتاج انتباهًا'
+    },
     loading: 'جار التحميل...',
     loadFailed: 'فشل التحميل',
     states: {
@@ -2875,7 +2878,11 @@ export const ar = defineLocale({
     noAuthenticatedProviders: 'لا يوجد مزوّدون مصادق عليهم.',
     addProvider: 'إضافة مزوّد…',
     addCustomModel: 'إضافة نموذج مخصص',
-    removeCustomModel: 'إزالة النموذج المخصص'
+    removeCustomModel: 'إزالة النموذج المخصص',
+    resetToDefaults: 'إعادة التعيين إلى الافتراضي',
+    resetConfirm: 'إعادة إعدادات ظهور النماذج إلى الافتراضي؟',
+    resetDescription: 'ستُمسح اختياراتك للنماذج الظاهرة والمخفية وتعود قائمة كل مزوّد الافتراضية. تُحفظ النماذج المخصصة التي أضفتها وتظهر.',
+    resetAction: 'إعادة التعيين'
   },
   shell: {
     windowControls: 'تحكم النافذة',
@@ -3683,6 +3690,11 @@ export const ar = defineLocale({
   ui: {
     search: {
       clear: 'مسح البحث'
+    },
+    logs: {
+      bottom: 'أسفل السجل',
+      search: 'البحث في السجلات…',
+      top: 'أعلى السجل'
     },
     pagination: {
       label: 'ترقيم الصفحات',

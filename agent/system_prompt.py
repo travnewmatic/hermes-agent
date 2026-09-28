@@ -195,7 +195,8 @@ def _session_start_like(agent: Any, now: Any) -> Any:
     def _to_display_tz(dt: Any) -> Any:
         if dt.tzinfo is None:
             try:
-                dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                # The offset in force at dt, not today's: a stamp from the other DST half differs by an hour.
+                dt = dt.astimezone()
             except (ValueError, OSError):
                 pass
         if getattr(now, "tzinfo", None) is not None and dt.tzinfo is not None:
@@ -713,13 +714,15 @@ def _context_files_part(agent: Any, ctx_len: Optional[int], soul_loaded: bool) -
     """Project context files (AGENTS.md etc.) for the context tier. TERMINAL_CWD
     when set (gateway); None lets discovery fall back to the launch dir.  The
     install-tree fallback is only legitimate for cli/tui where the launch dir
-    IS the user's shell cwd; desktop-pinned launch dirs are treated as the
-    fallback they really are so the guard can reject Hermes's bundled AGENTS.md."""
+    IS the user's shell cwd. Desktop launch artifacts skip the session cwd but
+    still honor the profile-scoped TERMINAL_CWD; without one, the fallback guard
+    can reject Hermes's bundled AGENTS.md."""
     if agent.skip_context_files:
         return []
     launch_artifact = getattr(agent, "_context_cwd_is_launch_artifact", False)
+    cwd = resolve_context_cwd(include_session_override=not launch_artifact)
     return [_pb.build_context_files_prompt(
-        cwd=None if launch_artifact else resolve_context_cwd(), skip_soul=soul_loaded, context_length=ctx_len,
+        cwd=cwd, skip_soul=soul_loaded, context_length=ctx_len,
         allow_install_tree_fallback=agent.platform in ("cli", "tui"), home_override=_agent_home(agent))]
 
 
