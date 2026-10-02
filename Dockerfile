@@ -330,8 +330,14 @@ RUN cd plugins/platforms/photon/sidecar && \
     npm cache clean --force
 
 # Shared product outputs are independent of application dependency assembly.
-COPY --from=frontend_build /opt/products/tui /opt/hermes/ui-tui
-COPY --from=frontend_build /opt/products/web /opt/hermes/hermes_cli/web_dist
+# --chmod a+rX,go-w is REQUIRED on these two (same as the main source COPY):
+# the frontend build leaves some assets (web_dist fonts) mode 0600, which the
+# runtime hermes user cannot read. That makes stage2's refresh_dependencies()
+# EACCES on every pod boot, so the venv stamp in $HERMES_HOME/installs never
+# refreshes to the new image's uv.lock and every `hermes` CLI call warns
+# "install out of sync (venv: out of sync with uv.lock)".
+COPY --from=frontend_build --chmod=a+rX,go-w /opt/products/tui /opt/hermes/ui-tui
+COPY --from=frontend_build --chmod=a+rX,go-w /opt/products/web /opt/hermes/hermes_cli/web_dist
 # ---------- Bot Screen X socket directory ----------
 # Xvnc would create this itself (/tmp is 1777); pre-creating it keeps ownership
 # deterministic when HERMES_UID is remapped between boots.
