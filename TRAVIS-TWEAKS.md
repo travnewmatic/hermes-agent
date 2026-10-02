@@ -42,7 +42,33 @@ upstream `VOLUME ["/opt/data"]` line.
 | 15 | stern | 1.34.0 | multi-pod log tailing |
 | 16 | kubeconform | v0.8.0 | K8s manifest schema validator |
 | 17 | kopia | 0.23.1 | Velero backup engine CLI (not in trixie, from GitHub) |
-| 18 | joplin | npm | `npm -g install joplin` |
+| 18 | joplin | `${JOPLIN_VERSION}` (3.7.1) | `npm -g install --allow-scripts=sqlite3 joplin@${JOPLIN_VERSION}` + stable symlink `/usr/local/bin/joplin` — see notes below |
+
+> **18. joplin — version pin + stable symlink (2026-10-02).** Two things:
+>
+> - **`>=3.7.1` is required, not just newer-nice.** The `tnewman-joplin-2` B2
+>   sync target now rejects clients older than 3.7.0 at the API level
+>   (`In order to synchronise, please upgrade your application to version
+>   3.7.0+`). `joplin-mcp-server` bundles joplin `^3.6.2` in its npx install,
+>   so the MCP sidecar's `sync` tool was permanently blocked. Bumping the
+>   global joplin and pointing the MCP server at it via
+>   **`JOPLIN_CLI=/usr/local/bin/joplin`** in the `mcp_servers.joplin.env`
+>   block of `config.yaml` fixes it (the sidecar checks `JOPLIN_CLI` before
+>   falling back to the stale npx-cached 3.6.2).
+> - **`--allow-scripts=sqlite3` is required.** npm >=12 blocks dependency
+>   install scripts by default; without it the sqlite3 native binding is
+>   never downloaded and `joplin` crashes at startup
+>   (`Cannot find module .../node_sqlite3.node`). This is exactly how the
+>   original unpinned `npm -g install joplin` (3.6.2) got left broken in the
+>   image.
+> - The `$(npm prefix -g)/bin/joplin -> /usr/local/bin/joplin` symlink gives
+>   the CLI a stable path that survives pm-managed node upgrades (the pm
+>   node lives at a versioned path like `/opt/hermes/tools/node-26.7.0-linux-x64`).
+>
+> **Pod config side (required companion to this image change):** the
+> `mcp_servers.joplin` entry in the hermes pod's `config.yaml` must carry
+> `env.JOPLIN_CLI=/usr/local/bin/joplin` — otherwise the sidecar keeps
+> resolving the stale npx-cached joplin 3.6.2 and sync stays blocked.
 
 Also sets `ENV DEBIAN_FRONTEND=noninteractive` (no interactive prompts during
 installs) and appends a build/run reference block at the bottom of the file.

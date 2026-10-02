@@ -664,8 +664,20 @@ RUN curl -sS -L -o /tmp/kopia.tar.gz \
        --strip-components=1 "kopia-${KOPIA_VERSION}-linux-x64/kopia" \
     && rm /tmp/kopia.tar.gz
 
-# 18. joplin
-RUN npm -g install joplin
+# 18. joplin (pinned >=3.7.1: the tnewman-joplin-2 B2 sync target rejects
+#     clients <3.7.0 -- joplin-mcp-server's bundled 3.6.2 sidecar gets
+#     "please upgrade your application to version 3.7.0+" on every sync.
+#     --allow-scripts=sqlite3 is REQUIRED: npm >=12 blocks dependency
+#     install scripts by default, and without it the sqlite3 native
+#     binding is never downloaded, so the joplin binary crashes at
+#     startup with "Cannot find module .../node_sqlite3.node" (this is
+#     how the unpinned global joplin 3.6.2 install got broken).
+#     The stable /usr/local/bin/joplin symlink is what the MCP sidecar
+#     is pointed at via JOPLIN_CLI in the pod config -- without it the
+#     sidecar finds the stale 3.6.2 copy in the npx cache first).
+ARG JOPLIN_VERSION=3.7.1
+RUN npm -g install --no-audit --no-fund --allow-scripts=sqlite3 joplin@${JOPLIN_VERSION} \
+    && ln -sf $(npm prefix -g)/bin/joplin /usr/local/bin/joplin
 
 # s6-overlay's /init is PID 1. It sets up the supervision tree, runs
 # /etc/cont-init.d/* (our stage2 hook), starts s6-rc services
